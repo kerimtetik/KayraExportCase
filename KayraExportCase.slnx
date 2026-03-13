@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/Gateway/">
+    <Project Path="ApiGateway/ApiGateway.csproj" Id="506d4c37-8907-49e1-8976-745fa8b7c79b" />
+  </Folder>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/Auth/">
+    <Project Path="Auth.API/Auth.API.csproj" Id="ecf50901-6697-4e8e-a326-242dac907537" />
+    <Project Path="Auth.Application/Auth.Application.csproj" Id="8d7e1ea3-85eb-4520-9b27-7c6ec2c064dd" />
+    <Project Path="Auth.Domain/Auth.Domain.csproj" Id="7337ea39-bb8a-4b6e-987d-4ad32f54b846" />
+    <Project Path="Auth.Infrastructure/Auth.Infrastructure.csproj" Id="bfca01c0-cdae-44d8-898d-037f9ff1f733" />
+  </Folder>
+  <Folder Name="/Services/Log/">
+    <Project Path="Log.API/Log.API.csproj" Id="e36fe897-7ffe-4137-8277-52a694083fc8" />
+    <Project Path="Log.Application/Log.Application.csproj" Id="f3d45318-e8d0-4540-9823-e3bc440be563" />
+    <Project Path="Log.Domain/Log.Domain.csproj" Id="c2fc983e-fe16-434f-82ab-5d48c6749af5" />
+    <Project Path="Log.Infrastructure/Log.Infrastructure.csproj" Id="9f34f8a1-1620-4ed3-8c39-a9a8793967e2" />
+  </Folder>
+  <Folder Name="/Services/Product/">
+    <Project Path="Product.API/Product.API.csproj" Id="d1f29f69-c398-448c-b7b6-c037504c346e" />
+    <Project Path="Product.Application/Product.Application.csproj" Id="90e48886-e239-4210-a948-e74ef0e30393" />
+    <Project Path="Product.Domain/Product.Domain.csproj" Id="86dec966-03b5-4ccd-aebf-61a68703983f" />
+    <Project Path="Product.Infrastructure/Product.Infrastructure.csproj" Id="a4074901-1aa7-4ecd-baca-f2e1c947de3e" />
+  </Folder>
+</Solution>
