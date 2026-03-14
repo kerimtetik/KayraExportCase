@@ -13,7 +13,6 @@
   <ItemGroup>
     <Folder Include="Features\Auth\Commands\" />
     <Folder Include="Features\Auth\Queries\" />
-    <Folder Include="Interfaces\" />
   </ItemGroup>
 
 </Project>
