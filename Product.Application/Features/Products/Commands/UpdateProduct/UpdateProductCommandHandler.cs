@@ -1,4 +1,5 @@
 ﻿using Product.Application.DTOs;
+using Product.Application.Interfaces;
 using Product.Domain.Repositories;
 
 namespace Product.Application.Features.Products.Commands.UpdateProduct;
@@ -6,10 +7,14 @@ namespace Product.Application.Features.Products.Commands.UpdateProduct;
 public class UpdateProductCommandHandler
 {
     private readonly IProductRepository _productRepository;
+    private readonly IProductCacheService _productCacheService;
 
-    public UpdateProductCommandHandler(IProductRepository productRepository)
+    public UpdateProductCommandHandler(
+        IProductRepository productRepository,
+        IProductCacheService productCacheService)
     {
         _productRepository = productRepository;
+        _productCacheService = productCacheService;
     }
 
     public async Task<ProductResponseDto?> Handle(UpdateProductCommand command, CancellationToken cancellationToken = default)
@@ -26,6 +31,7 @@ public class UpdateProductCommandHandler
         product.UpdatedAtUtc = DateTime.UtcNow;
 
         await _productRepository.UpdateAsync(product, cancellationToken);
+        await _productCacheService.RemoveProductsAsync(cancellationToken);
 
         return new ProductResponseDto
         {

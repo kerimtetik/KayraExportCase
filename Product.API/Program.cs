@@ -5,16 +5,19 @@ using Microsoft.IdentityModel.Tokens;
 using Product.Domain.Repositories;
 using Product.Infrastructure.Persistence;
 using Product.Infrastructure.Repositories;
-
 using Microsoft.OpenApi.Models;
 using Product.Application.Features.Products.Commands.CreateProduct;
 using Product.Application.Features.Products.Commands.UpdateProduct;
 using Product.Application.Features.Products.Queries.GetProducts;
+using Product.Application.Interfaces;
+using Product.Infrastructure.Caching;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// Swagger Ayarları
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -49,15 +52,27 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// CQRS Handler Kayıtları
 builder.Services.AddScoped<CreateProductCommandHandler>();
 builder.Services.AddScoped<UpdateProductCommandHandler>();
 builder.Services.AddScoped<GetProductsQueryHandler>();
 
+// Veritabanı ve Repository Kayıtları
 builder.Services.AddDbContext<ProductDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ProductDb")));
-
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 
+// -------------------------------------------------------------------
+// 👇 REDIS VE CACHE SERVİSİ KODLARINI BURAYA EKLEDİK 👇
+// -------------------------------------------------------------------
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration["Redis:Connection"];
+});
+builder.Services.AddScoped<IProductCacheService, ProductCacheService>();
+// -------------------------------------------------------------------
+
+// JWT ve Authentication Ayarları
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var key = jwtSection["Key"]!;
 
@@ -82,6 +97,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// --- UYGULAMA İNŞA EDİLİYOR ---
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -91,10 +107,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 app.MapGet("/ping", () => Results.Ok("product pong"));
 
