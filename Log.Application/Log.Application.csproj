@@ -11,7 +11,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="DTOs\" />
     <Folder Include="Features\Logs\" />
     <Folder Include="Interfaces\" />
   </ItemGroup>

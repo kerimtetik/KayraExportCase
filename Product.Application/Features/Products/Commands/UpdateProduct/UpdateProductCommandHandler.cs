@@ -8,13 +8,17 @@ public class UpdateProductCommandHandler
 {
     private readonly IProductRepository _productRepository;
     private readonly IProductCacheService _productCacheService;
+    private readonly ILogServiceClient _logServiceClient;
 
     public UpdateProductCommandHandler(
         IProductRepository productRepository,
-        IProductCacheService productCacheService)
+        IProductCacheService productCacheService,
+        ILogServiceClient logServiceClient )
     {
         _productRepository = productRepository;
         _productCacheService = productCacheService;
+        _logServiceClient = logServiceClient;
+
     }
 
     public async Task<ProductResponseDto?> Handle(UpdateProductCommand command, CancellationToken cancellationToken = default)
@@ -32,6 +36,13 @@ public class UpdateProductCommandHandler
 
         await _productRepository.UpdateAsync(product, cancellationToken);
         await _productCacheService.RemoveProductsAsync(cancellationToken);
+
+        await _logServiceClient.SendLogAsync(
+            "Product.API",
+            "INFO",
+            $"Product updated. Id: {product.Id}, Name: {product.Name}",
+            null,
+            cancellationToken);
 
         return new ProductResponseDto
         {
