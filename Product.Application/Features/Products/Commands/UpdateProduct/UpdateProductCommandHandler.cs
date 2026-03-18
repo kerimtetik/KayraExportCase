@@ -26,6 +26,13 @@ public class UpdateProductCommandHandler
         var product = await _productRepository.GetByIdAsync(command.Id, cancellationToken);
         if (product is null)
         {
+            // Log WARNING kedua ürün bulunmazsa
+            await _logServiceClient.SendLogAsync(
+                "Product.API",
+                "WARNING",
+                $"Product update failed. Product not found. Id: {command.Id}",
+                null,
+                cancellationToken);
             return null;
         }
 

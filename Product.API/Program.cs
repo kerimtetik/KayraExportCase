@@ -74,6 +74,9 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddScoped<IProductCacheService, ProductCacheService>();
 // -------------------------------------------------------------------
 
+// Event Publisher Kaydı
+builder.Services.AddScoped<IProductEventPublisher, ProductEventPublisher>();
+
 // JWT ve Authentication Ayarları
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var key = jwtSection["Key"]!;
