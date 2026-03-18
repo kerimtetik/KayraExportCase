@@ -11,7 +11,6 @@ using Product.Application.Features.Products.Commands.UpdateProduct;
 using Product.Application.Features.Products.Queries.GetProducts;
 using Product.Application.Interfaces;
 using Product.Infrastructure.Caching;
-using Product.Application.Interfaces;
 using Product.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
