@@ -82,6 +82,13 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Database Migration
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    dbContext.Database.Migrate();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

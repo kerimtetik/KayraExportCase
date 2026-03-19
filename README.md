@@ -27,6 +27,7 @@
 - **Redis** (Caching)
 - **YARP** (Reverse Proxy / API Gateway)
 - **Swagger/OpenAPI**
+- **Docker** & **Docker Compose** (Containerization)
 
 ## Mimari Yaklaşımlar
 
@@ -298,6 +299,231 @@ API Gateway: 5 request / 10 saniye (IP başına)
 
 ---
 
+## Docker Containerization
+
+### Docker ile Çalıştırma
+
+Tüm servisler (Auth, Product, Log, Gateway, Redis, SQL Server) Docker containerlarında çalışabilir.
+
+#### Ön Koşullar:
+- Docker Desktop yüklü ve çalışıyor
+- Docker Compose v3.8+
+- Minimum 4GB RAM ve 20GB disk alanı (SQL Server için)
+
+#### Başlatma:
+
+```bash
+# Root dizinden komut çalıştır
+docker-compose up --build
+
+# Arka planda çalıştır:
+docker-compose up --build -d
+```
+
+#### Container Durumunu Kontrol Et:
+
+```bash
+docker-compose ps
+
+# Output:
+# NAME                    STATUS          PORTS
+# kayra-api-gateway       Up 2 minutes    0.0.0.0:5109->80/tcp
+# kayra-auth-api          Up 2 minutes    0.0.0.0:5128->80/tcp
+# kayra-product-api       Up 2 minutes    0.0.0.0:5164->80/tcp
+# kayra-log-api           Up 2 minutes    0.0.0.0:5029->80/tcp
+# kayra-redis             Up 2 minutes    0.0.0.0:6379->6379/tcp
+# kayra-auth-db           Up 2 minutes    0.0.0.0:11433->1433/tcp
+# kayra-product-db        Up 2 minutes    0.0.0.0:21433->1433/tcp
+# kayra-log-db            Up 2 minutes    0.0.0.0:31433->1433/tcp
+```
+
+#### Containerları Durdur:
+
+```bash
+docker-compose down
+
+# Tüm volume'leri sil:
+docker-compose down -v
+```
+
+### Docker Ortamında API Erişimi
+
+Gateway başarıyla başladıktan sonra aynı curl/Postman komutlarını kullanabilirsiniz:
+
+```bash
+# Gateway ping
+curl http://localhost:5109/ping
+
+# Auth register
+curl -X POST http://localhost:5109/auth/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@test.com","password":"Pass123!"}'
+
+# Product oluştur
+curl -X POST http://localhost:5109/product/api/product \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Product","price":99.99,"stock":50}'
+
+# Logları listele
+curl http://localhost:5109/log/api/logs
+```
+
+### Docker Mimarisi
+
+```
+Docker Network: kayra-network
+├── api-gateway (port 5109)
+│   ├── → auth-api (container name: kayra-auth-api, port 5128)
+│   ├── → product-api (container name: kayra-product-api, port 5164)
+│   └── → log-api (container name: kayra-log-api, port 5029)
+├── redis (port 6379)
+│
+⚠️  Veritabanları: LocalDB (host.docker.internal ile container'lardan erişilebilir)
+    - KayraAuthDb
+    - KayraProductDb
+    - KayraLogDb
+```
+
+### Service Discovery (Container Network)
+
+Container'lar kendi aralarında container adı ile iletişim kurar:
+
+- **Product → Log**: `http://log-api:80` (`appsettings.Docker.json`)
+- **Product → Redis**: `redis:6379`
+- **Gateway → Backend Services**: Container isimleri (auth-api, product-api, log-api)
+
+### Docker Compose Setup
+
+**Servisler:**
+1. **redis** - Cache layer (redis:7-alpine)
+2. **auth-api** - Authentication service
+3. **product-api** - Product management service
+4. **log-api** - Centralized logging service
+5. **api-gateway** - YARP reverse proxy
+
+**Veritabanı Notası:**
+
+Containerlar SQL Server yerine LocalDB kullanıyor. Veritabanlar host machine'de LocalDB'de yer alıyor.
+
+```bash
+# Container başlamadan ÖNCE veritabanları migrate etmelisin:
+Add-Migration InitialAuthSchema -Project Auth.Infrastructure -StartupProject Auth.API
+Update-Database -Project Auth.Infrastructure -StartupProject Auth.API
+# ... (Product ve Log için de)
+```
+
+Container'lar başladıktan sonra, appsettings.Docker.json aracılığıyla `host.docker.internal` üzerinden LocalDB'ye bağlanırlar.
+
+### Database Setup (LocalDB with Docker Containers)
+
+**ÖNEMLI:** Container'lar başlamadan ÖNCE hassas veritabanı migration'larını çalıştırmalısınız:
+
+```bash
+# Host machine'de (Docker başlamadan):
+
+# Auth DB
+Add-Migration InitialAuthSchema -Project Auth.Infrastructure -StartupProject Auth.API
+Update-Database -Project Auth.Infrastructure -StartupProject Auth.API
+
+# Product DB
+Add-Migration InitialProductSchema -Project Product.Infrastructure -StartupProject Product.API
+Update-Database -Project Product.Infrastructure -StartupProject Product.API
+
+# Log DB
+Add-Migration InitialLogSchema -Project Log.Infrastructure -StartupProject Log.API
+Update-Database -Project Log.Infrastructure -StartupProject Log.API
+```
+
+**Nasıl çalışır:**
+- Veritabanları host machine'de LocalDB'de yaşıyor
+- Container'lar `System.Data.SqlClient` Trusted Connection kullanıyor
+- Docker Desktop'ın `host.docker.internal` special hostname'i üzerinden LocalDB'ye erişim sağlanıyor
+- Windows Authentication (Trusted_Connection=True) kullanılıyor
+
+**Avantajlar:**
+- Hızlı startup (SQL Server container gerekmiyor)
+- Development esnekliği (VS'de dbsını kontrol edebilirsin)
+- Düşük resource kullanım
+
+**Dezavantajlar:**
+- Yalnızca Windows'ta çalışır (Linux/Mac'te docker-compose.override.yml ile SQL Server eklemek gerekli)
+
+### Environment Variables (Docker Compose)
+
+`docker-compose.yml` içinde her servis için environment değişkenleri tanımlanmıştır:
+
+```yaml
+environment:
+  - ASPNETCORE_ENVIRONMENT=Docker
+  - ConnectionStrings__AuthDb=Server=auth-db,1433;...
+  - Redis__Connection=redis:6379
+  - Services__LogServiceBaseUrl=http://log-api
+```
+
+Yerel değişiklikler için `docker-compose.override.yml` oluşturabilirsiniz:
+
+```yaml
+version: '3.8'
+services:
+  product-api:
+    environment:
+      - Services__LogServiceBaseUrl=http://custom-log-service
+```
+
+### Logs Kontrol
+
+```bash
+# Tüm container loglarını göster
+docker-compose logs -f
+
+# Spesifik servis logları
+docker-compose logs -f api-gateway
+docker-compose logs -f product-api
+
+# Son 100 satır (without follow)
+docker-compose logs --tail=100 product-api
+```
+
+### Performance Notes
+
+- **Build Süresi**: ~2-3 dakika (ilk build, network hızına bağlı)
+- **Startup Süresi**: ~30-60 saniye (SQL Server health checks)
+- **Memory**: ~3-4GB RAM (tüm container'lar)
+- **Disk**: ~5-6GB (image'lar + data volumes)
+
+### Known Limitations
+
+1. **SQL Server Licensing**: Developer edition kullanılıyor (production değil)
+2. **LocalDB ile Dev**: Local development için LocalDB + Redis daha hafif
+3. **Database Migrations**: Container'da manuel migration gerekli
+4. **SSL/HTTPS**: Docker ortamında HTTP kullanılıyor (HTTPS için sertifikat setup gerekli)
+
+### Troubleshooting
+
+**Port Already in Use**
+```bash
+# Port 5109'u kullanan process'i bul
+lsof -i :5109  # Linux/Mac
+netstat -ano | findstr :5109  # Windows
+```
+
+**Container Crash'i**
+```bash
+# Log detayları gör
+docker-compose logs api-gateway
+
+# Health check başarısız
+docker-compose logs auth-db
+```
+
+**Database Connection Error**
+```bash
+# SQL Server hazır mı kontrol et
+docker exec kayra-auth-db sqlcmd -S localhost -U sa -P KayraPassword123! -Q "SELECT @@VERSION"
+```
+
+---
+
 ## Özellikler
 
 ✅ **Tamamlanan:**
@@ -310,14 +536,17 @@ API Gateway: 5 request / 10 saniye (IP başına)
 - JWT Authentication
 - Onion Architecture
 - Entity Framework Core Migrations
+- **Docker Containerization** (LocalDB + Redis + API Services)
+- **Unit Tests** (xUnit + Moq, 13 tests)
+- **Event Publishing** (ProductCreatedEvent)
 
 ⠀ **Ekstra Değerlendirme (Henüz Yapılmamış):**
-- Docker Containerization
 - CI/CD Pipeline
 - RabbitMQ / Kafka Event Bus
 - SAGA Pattern
 - Role-Based Authorization
 - Advanced Structured Logging (Serilog + ELK)
+- SQL Server Container (Alternative DB setup)
 
 ---
 

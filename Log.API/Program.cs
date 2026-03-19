@@ -12,6 +12,13 @@ builder.Services.AddDbContext<LogDbContext>(options =>
 
 var app = builder.Build();
 
+// Database Migration
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<LogDbContext>();
+    dbContext.Database.Migrate();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

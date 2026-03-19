@@ -1,0 +1,103 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: kayra-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: kayra-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: Auth.API/Dockerfile
+    container_name: kayra-auth-api
+    ports:
+      - "5128:80"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:80
+    depends_on:
+      - sqlserver
+      - redis
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+  product-api:
+    build:
+      context: .
+      dockerfile: Product.API/Dockerfile
+    container_name: kayra-product-api
+    ports:
+      - "5164:80"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:80
+    depends_on:
+      - sqlserver
+      - redis
+      - auth-api
+      - log-api
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+  log-api:
+    build:
+      context: .
+      dockerfile: Log.API/Dockerfile
+    container_name: kayra-log-api
+    ports:
+      - "5029:80"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:80
+    depends_on:
+      - sqlserver
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: ApiGateway/Dockerfile
+    container_name: kayra-api-gateway
+    ports:
+      - "5109:80"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:80
+    depends_on:
+      - auth-api
+      - product-api
+      - log-api
+    networks:
+      - kayra-network
+    restart: unless-stopped
+
+networks:
+  kayra-network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
+  redis_data:
