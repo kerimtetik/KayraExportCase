@@ -180,6 +180,7 @@ GET    /api/auth/ping              - Basit ping
 POST   /api/product                - Ürün oluştur (ProductWritePolicy)
 PUT    /api/product/{id}           - Ürün güncelle (ProductWritePolicy)
 GET    /api/product                - Ürün listele (Redis cache)
+GET    /api/product/cursor         - Cursor-based pagination (ayrı endpoint, Redis cache yok)
 GET    /api/product/ping           - Basit ping
 ```
 
@@ -231,6 +232,7 @@ GET  http://localhost:5109/auth/api/auth/secure-ping (Token gerekli)
 ### Product
 ```
 GET  http://localhost:5109/product/api/product
+GET  http://localhost:5109/product/api/product/cursor?limit=10
 POST http://localhost:5109/product/api/product
 PUT  http://localhost:5109/product/api/product/{id}
 ```
@@ -703,15 +705,13 @@ docker build --no-cache -t test Auth.API/
   - appsettings.Docker.json configuration
 - **Unit Tests** (xUnit + Moq, 13 tests)
 - **Event Publishing** (ProductCreatedEvent)
-- **CI/CD Pipeline** (GitHub Actions)
-  - Automated build, test, Docker verification
   - Multi-branch trigger (push/PR on test/v1.0.0, prod/v1.0.0, main)
   - Build & test validation
-
-⠀ **Ekstra Değerlendirme (Henüz Yapılmamış):**
-- CI/CD Deployment Pipeline (automated release/deploy)
-- RabbitMQ / Kafka Event Bus
-- SAGA Pattern
+ Auth mikroservisi (Register, Login, Refresh Token)
+- Product CQRS (Create, Update, GetAll)
+- Redis Cache + Cache Invalidation
+- Cursor-Based Pagination (`GET /api/product/cursor`)
+- Centralized Log Service
 
 ---
 

@@ -4,6 +4,7 @@ using Product.Application.DTOs;
 using Product.Application.Features.Products.Commands.CreateProduct;
 using Product.Application.Features.Products.Commands.UpdateProduct;
 using Product.Application.Features.Products.Queries.GetProducts;
+using Product.Application.Features.Products.Queries.GetProductsCursor;
 
 namespace Product.API.Controllers;
 
@@ -68,5 +69,28 @@ public class ProductController : ControllerBase
     {
         var result = await handler.Handle(new GetProductsQuery(), cancellationToken);
         return Ok(result);
+    }
+
+    [HttpGet("cursor")]
+    public async Task<ActionResult<ProductCursorPageResponseDto>> GetCursorPage(
+        [FromQuery] string? cursor,
+        [FromServices] GetProductsCursorQueryHandler handler, // Zorunlu olanı öne aldık
+        [FromQuery] int limit = 10,                           // Opsiyoneller sona
+        CancellationToken cancellationToken = default)        // CancellationToken'ı da opsiyonel yaptık
+    {
+        try
+        {
+            var result = await handler.Handle(new GetProductsCursorQuery
+            {
+                Cursor = cursor,
+                Limit = limit
+            }, cancellationToken);
+
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 }

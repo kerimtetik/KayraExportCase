@@ -32,6 +32,26 @@ public class ProductRepository : IProductRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<List<ProductEntity>> GetPageAsync(DateTime? cursorCreatedAtUtc, Guid? cursorId, int limit, CancellationToken cancellationToken = default)
+    {
+        var query = _dbContext.Products
+            .AsNoTracking()
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ThenByDescending(x => x.Id)
+            .AsQueryable();
+
+        if (cursorCreatedAtUtc.HasValue && cursorId.HasValue)
+        {
+            query = query.Where(x =>
+                x.CreatedAtUtc < cursorCreatedAtUtc.Value ||
+                (x.CreatedAtUtc == cursorCreatedAtUtc.Value && x.Id.CompareTo(cursorId.Value) < 0));
+        }
+
+        return await query
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task UpdateAsync(ProductEntity product, CancellationToken cancellationToken = default)
     {
         _dbContext.Products.Update(product);

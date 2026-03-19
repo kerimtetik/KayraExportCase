@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using Product.Application.Features.Products.Commands.CreateProduct;
 using Product.Application.Features.Products.Commands.UpdateProduct;
 using Product.Application.Features.Products.Queries.GetProducts;
+using Product.Application.Features.Products.Queries.GetProductsCursor;
 using Product.Application.Interfaces;
 using Product.Domain.Repositories;
 using Product.Infrastructure.Caching;
@@ -55,6 +56,7 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddScoped<CreateProductCommandHandler>();
 builder.Services.AddScoped<UpdateProductCommandHandler>();
 builder.Services.AddScoped<GetProductsQueryHandler>();
+builder.Services.AddScoped<GetProductsCursorQueryHandler>();
 
 builder.Services.AddDbContext<ProductDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ProductDb")));
