@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Product.Application.DTOs;
 using Product.Application.Features.Products.Commands.CreateProduct;
@@ -17,6 +17,7 @@ public class ProductController : ControllerBase
         return Ok("product service is running");
     }
 
+    [Authorize(Policy = "ProductWritePolicy")]
     [HttpPost]
     public async Task<ActionResult<ProductResponseDto>> Create(
         CreateProductRequestDto request,
@@ -34,7 +35,7 @@ public class ProductController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize]
+    [Authorize(Policy = "ProductWritePolicy")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ProductResponseDto>> Update(
         Guid id,

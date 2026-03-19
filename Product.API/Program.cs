@@ -2,15 +2,15 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Product.Domain.Repositories;
-using Product.Infrastructure.Persistence;
-using Product.Infrastructure.Repositories;
 using Microsoft.OpenApi.Models;
 using Product.Application.Features.Products.Commands.CreateProduct;
 using Product.Application.Features.Products.Commands.UpdateProduct;
 using Product.Application.Features.Products.Queries.GetProducts;
 using Product.Application.Interfaces;
+using Product.Domain.Repositories;
 using Product.Infrastructure.Caching;
+using Product.Infrastructure.Persistence;
+using Product.Infrastructure.Repositories;
 using Product.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,7 +18,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Swagger Ayarları
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -53,30 +52,22 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// CQRS Handler Kayıtları
 builder.Services.AddScoped<CreateProductCommandHandler>();
 builder.Services.AddScoped<UpdateProductCommandHandler>();
 builder.Services.AddScoped<GetProductsQueryHandler>();
 
-// Veritabanı ve Repository Kayıtları
 builder.Services.AddDbContext<ProductDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ProductDb")));
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 
-// -------------------------------------------------------------------
-// 👇 REDIS VE CACHE SERVİSİ KODLARINI BURAYA EKLEDİK 👇
-// -------------------------------------------------------------------
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration["Redis:Connection"];
 });
 builder.Services.AddScoped<IProductCacheService, ProductCacheService>();
-// -------------------------------------------------------------------
 
-// Event Publisher Kaydı
 builder.Services.AddScoped<IProductEventPublisher, ProductEventPublisher>();
 
-// JWT ve Authentication Ayarları
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var key = jwtSection["Key"]!;
 
@@ -104,12 +95,17 @@ builder.Services.AddHttpClient<ILogServiceClient, LogServiceClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Services:LogServiceBaseUrl"]!);
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("ProductWritePolicy", policy =>
+        policy.RequireRole("Admin", "ProductManager"));
 
-// --- UYGULAMA İNŞA EDİLİYOR ---
+    options.AddPolicy("AdminOnlyPolicy", policy =>
+        policy.RequireRole("Admin"));
+});
+
 var app = builder.Build();
 
-// Database Migration
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ProductDbContext>();

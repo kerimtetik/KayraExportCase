@@ -1,12 +1,13 @@
 using System.Text;
+using Auth.Application.Interfaces;
+using Auth.Infrastructure.Authorization;
 using Auth.Infrastructure.Identity;
 using Auth.Infrastructure.Persistence;
+using Auth.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Auth.Application.Interfaces;
-using Auth.Infrastructure.Services;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +49,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
+builder.Services.AddScoped<RoleSeeder>();
 
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("AuthDb")));
@@ -78,15 +80,27 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AppPolicies.AdminOnlyPolicy, policy =>
+        policy.RequireRole(AppRoles.Admin));
+
+    options.AddPolicy(AppPolicies.ProductWritePolicy, policy =>
+        policy.RequireRole(AppRoles.Admin, AppRoles.ProductManager));
+
+    options.AddPolicy(AppPolicies.LogsReadPolicy, policy =>
+        policy.RequireRole(AppRoles.Admin));
+});
 
 var app = builder.Build();
 
-// Database Migration
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
     dbContext.Database.Migrate();
+
+    var roleSeeder = scope.ServiceProvider.GetRequiredService<RoleSeeder>();
+    await roleSeeder.SeedAsync();
 }
 
 if (app.Environment.IsDevelopment())

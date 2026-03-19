@@ -1,6 +1,7 @@
-﻿using Log.Application.DTOs;
+using Log.Application.DTOs;
 using Log.Domain.Entities;
 using Log.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,6 +37,7 @@ public class LogsController : ControllerBase
         return Ok("Log kaydedildi.");
     }
 
+    [Authorize(Policy = "LogsReadPolicy")]
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
     {

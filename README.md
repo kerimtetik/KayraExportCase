@@ -23,11 +23,11 @@
 - **ASP.NET Core Web API**
 - **Entity Framework Core** (ORM)
 - **ASP.NET Core Identity** (Auth)
-- **SQL Server LocalDB**
+- **SQL Server** (LocalDB for dev, Container for Docker)
 - **Redis** (Caching)
 - **YARP** (Reverse Proxy / API Gateway)
 - **Swagger/OpenAPI**
-- **Docker** & **Docker Compose** (Containerization)
+- **Docker** & **Docker Compose** (Containerization with SQL Server + Redis)
 
 ## Mimari Yaklaşımlar
 
@@ -61,9 +61,11 @@ git checkout test/v1.0.0
 docker run -d --name kayra-redis -p 6379:6379 redis:7-alpine
 ```
 
-### 4. Veritabanlarını Oluştur
+### 4. Veritabanlarını Oluştur (LOCAL DEVELOPMENT)
 
 **Package Manager Console'de şu komutları çalıştır:**
+
+> 📌 **Note:** Bu adımlar LOCAL development için. Docker kullananlar için migration otomatik çalışır.
 
 Auth veritabanı:
 ```powershell
@@ -168,14 +170,15 @@ Logs
 POST   /api/auth/register          - Kullanıcı kayıt
 POST   /api/auth/login             - Giriş (access + refresh token döner)
 POST   /api/auth/refresh           - Token yenile
+POST   /api/auth/assign-role       - Rol atama (Sadece Admin)
 GET    /api/auth/secure-ping       - Token kontrol (Auth gerekli)
 GET    /api/auth/ping              - Basit ping
 ```
 
 ### PRODUCT.API
 ```
-POST   /api/product                - Ürün oluştur
-PUT    /api/product/{id}           - Ürün güncelle (Auth gerekli)
+POST   /api/product                - Ürün oluştur (ProductWritePolicy)
+PUT    /api/product/{id}           - Ürün güncelle (ProductWritePolicy)
 GET    /api/product                - Ürün listele (Redis cache)
 GET    /api/product/ping           - Basit ping
 ```
@@ -183,8 +186,26 @@ GET    /api/product/ping           - Basit ping
 ### LOG.API
 ```
 POST   /api/logs                   - Log kaydı ekle
-GET    /api/logs                   - Logları listele
+GET    /api/logs                   - Logları listele (LogsReadPolicy)
 GET    /api/logs/ping              - Basit ping
+```
+
+### Authorization Özeti
+```
+Roller:
+- Admin
+- ProductManager
+- User
+
+Policy'ler:
+- AdminOnlyPolicy    -> sadece Admin
+- ProductWritePolicy -> Admin veya ProductManager
+- LogsReadPolicy     -> sadece Admin
+
+Notlar:
+- Register olan kullanıcıya varsayılan User rolü atanır.
+- Roller uygulama başlangıcında seed edilir.
+- JWT access token içine role claim'leri eklenir.
 ```
 
 ---
@@ -227,23 +248,27 @@ POST http://localhost:5109/log/api/logs
 ### 1. Auth Test
 ```
 1. POST /auth/api/auth/register → Kullanıcı oluştur
-2. POST /auth/api/auth/login → Token al (accessToken)
-3. GET /auth/api/auth/secure-ping + Token → Doğrula
+2. Yeni kullanıcının varsayılan rolü User olur
+3. POST /auth/api/auth/login → Token al (accessToken)
+4. GET /auth/api/auth/secure-ping + Token → Doğrula
+5. Admin token ile POST /auth/api/auth/assign-role → ProductManager rolü ata
 ```
 
 ### 2. Product Test
 ```
-1. POST /product/api/product → Ürün oluştur
-2. GET /product/api/product → Listele (DB'den)
-3. GET /product/api/product (2. kez) → Listele (Redis cache'den)
-4. PUT /product/api/product/{id} + Token → Güncelle
-5. Cache invalidate olur, yeniden GET → Güncel veri
+1. ProductManager veya Admin token ile POST /product/api/product → Ürün oluştur
+2. User token ile POST /product/api/product → 403 dönmeli
+3. GET /product/api/product → Listele (DB'den)
+4. GET /product/api/product (2. kez) → Listele (Redis cache'den)
+5. ProductManager veya Admin token ile PUT /product/api/product/{id} → Güncelle
+6. Cache invalidate olur, yeniden GET → Güncel veri
 ```
 
 ### 3. Log Test
 ```
 1. Product'ta işlem yap (create/update)
-2. GET /log/api/logs → Merkezi log kaydını kontrol et
+2. Admin token ile GET /log/api/logs → Merkezi log kaydını kontrol et
+3. User token ile GET /log/api/logs → 403 dönmeli
 ```
 
 ### 4. Gateway Routing Test
@@ -258,11 +283,13 @@ Tüm request'ler doğru servisine yönlendirilmeli
 
 ### SQL Server Bağlantı Stringi
 
-Her servisin `appsettings.json`'ında:
+#### Local Development (appsettings.json)
+
+Her servisin `appsettings.json`'ında LocalDB kullanılır:
 
 ```json
 "ConnectionStrings": {
-  "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=KayraAuthDb;Trusted_Connection=true;TrustServerCertificate=true;"
+  "AuthDb": "Server=(localdb)\\mssqllocaldb;Database=KayraAuthDb;Trusted_Connection=true;TrustServerCertificate=true;"
 }
 ```
 
@@ -270,6 +297,20 @@ Veritabanı adları:
 - **Auth:** `KayraAuthDb`
 - **Product:** `KayraProductDb`
 - **Log:** `KayraLogDb`
+
+#### Docker Environment (appsettings.Docker.json)
+
+`ASPNETCORE_ENVIRONMENT=Docker` olduğunda SQL Server container kullanılır:
+
+```json
+"ConnectionStrings": {
+  "AuthDb": "Server=sqlserver;Database=KayraAuthDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
+}
+```
+
+**Fark:**
+- Local: `(localdb)\\mssqllocaldb` + Windows Auth
+- Docker: `sqlserver` container name + SQL Auth (sa user)
 
 ### JWT Konfigürasyonu
 
@@ -301,9 +342,11 @@ API Gateway: 5 request / 10 saniye (IP başına)
 
 ## Docker Containerization
 
-### Docker ile Çalıştırma
+### Mimari Özet
 
-Tüm servisler (Auth, Product, Log, Gateway, Redis, SQL Server) Docker containerlarında çalışabilir.
+Tüm servisler (Auth, Product, Log, Gateway), Redis ve SQL Server Docker containerlarında çalışabilir.
+
+**✨ Yeni:** Veritabanlar artık SQL Server container'da çalışıyor (LocalDB yerine). Otomatik migration desteği.
 
 #### Ön Koşullar:
 - Docker Desktop yüklü ve çalışıyor
@@ -325,16 +368,14 @@ docker-compose up --build -d
 ```bash
 docker-compose ps
 
-# Output:
-# NAME                    STATUS          PORTS
-# kayra-api-gateway       Up 2 minutes    0.0.0.0:5109->80/tcp
-# kayra-auth-api          Up 2 minutes    0.0.0.0:5128->80/tcp
-# kayra-product-api       Up 2 minutes    0.0.0.0:5164->80/tcp
-# kayra-log-api           Up 2 minutes    0.0.0.0:5029->80/tcp
-# kayra-redis             Up 2 minutes    0.0.0.0:6379->6379/tcp
-# kayra-auth-db           Up 2 minutes    0.0.0.0:11433->1433/tcp
-# kayra-product-db        Up 2 minutes    0.0.0.0:21433->1433/tcp
-# kayra-log-db            Up 2 minutes    0.0.0.0:31433->1433/tcp
+# Output örneği:
+# NAME                  STATUS          PORTS
+# api-gateway          Up 2 minutes    0.0.0.0:5109->80/tcp
+# auth-api             Up 2 minutes    0.0.0.0:5128->80/tcp
+# product-api          Up 2 minutes    0.0.0.0:5164->80/tcp
+# log-api              Up 2 minutes    0.0.0.0:5029->80/tcp
+# redis                Up 2 minutes    0.0.0.0:6379->6379/tcp
+# sqlserver            Up 2 minutes    0.0.0.0:1433->1433/tcp
 ```
 
 #### Containerları Durdur:
@@ -342,7 +383,7 @@ docker-compose ps
 ```bash
 docker-compose down
 
-# Tüm volume'leri sil:
+# Tüm volume'leri sil (clean state):
 docker-compose down -v
 ```
 
@@ -373,102 +414,106 @@ curl http://localhost:5109/log/api/logs
 ```
 Docker Network: kayra-network
 ├── api-gateway (port 5109)
-│   ├── → auth-api (container name: kayra-auth-api, port 5128)
-│   ├── → product-api (container name: kayra-product-api, port 5164)
-│   └── → log-api (container name: kayra-log-api, port 5029)
+│   ├── → auth-api (container host: auth-api, port 80)
+│   ├── → product-api (container host: product-api, port 80)
+│   └── → log-api (container host: log-api, port 80)
 ├── redis (port 6379)
-│
-⚠️  Veritabanları: LocalDB (host.docker.internal ile container'lardan erişilebilir)
-    - KayraAuthDb
-    - KayraProductDb
-    - KayraLogDb
+├── sqlserver (port 1433)
+│   ├── KayraAuthDb
+│   ├── KayraProductDb
+│   └── KayraLogDb
 ```
 
 ### Service Discovery (Container Network)
 
-Container'lar kendi aralarında container adı ile iletişim kurar:
+Container'lar kendi aralarında container adı/host ile iletişim kurar:
 
-- **Product → Log**: `http://log-api:80` (`appsettings.Docker.json`)
+- **SQL Server**: `Server=sqlserver;User Id=sa;Password=YourStrong!Passw0rd;`
+- **Product → Log API**: `http://log-api:80` (appsettings.Docker.json)
 - **Product → Redis**: `redis:6379`
-- **Gateway → Backend Services**: Container isimleri (auth-api, product-api, log-api)
+- **Gateway → Backend Services**: auth-api, product-api, log-api (DNS names)
+
+### Database Configuration (SQL Server Container)
+
+#### appsettings.Docker.json Pattern
+
+Her servis, `ASPNETCORE_ENVIRONMENT=Docker` olduğunda appsettings.Docker.json dosyasını yükler:
+
+**Auth.API/appsettings.Docker.json:**
+```json
+{
+  "ConnectionStrings": {
+    "AuthDb": "Server=sqlserver;Database=KayraAuthDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
+  },
+  "Jwt": { ... },
+  "AllowedHosts": "*"
+}
+```
+
+**Product.API/appsettings.Docker.json:**
+```json
+{
+  "ConnectionStrings": {
+    "ProductDb": "Server=sqlserver;Database=KayraProductDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
+  },
+  "Redis": {
+    "Connection": "redis:6379"
+  },
+  "Services": {
+    "LogServiceBaseUrl": "http://log-api:80"
+  },
+  "Jwt": { ... },
+  "AllowedHosts": "*"
+}
+```
+
+**Log.API/appsettings.Docker.json:**
+```json
+{
+  "ConnectionStrings": {
+    "LogDb": "Server=sqlserver;Database=KayraLogDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;"
+  },
+  "Logging": { ... },
+  "AllowedHosts": "*"
+}
+```
+
+#### Automatic Database Migration
+
+Her container başladıktan sonra **otomatik olarak** Database.Migrate() çalışır:
+
+```csharp
+// Program.cs içindeki kod
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    dbContext.Database.Migrate();
+}
+```
+
+Bu sayede:
+✅ Migration'lar docker-compose up sırasında otomatik çalışır
+✅ Veritabanı şemaları otomatik oluşturulur
+✅ Manuel migration komutuna gerek yok
 
 ### Docker Compose Setup
 
 **Servisler:**
 1. **redis** - Cache layer (redis:7-alpine)
-2. **auth-api** - Authentication service
-3. **product-api** - Product management service
-4. **log-api** - Centralized logging service
-5. **api-gateway** - YARP reverse proxy
+2. **sqlserver** - SQL Server container (Microsoft SQL Server)
+3. **auth-api** - Authentication service
+4. **product-api** - Product management service
+5. **log-api** - Centralized logging service
+6. **api-gateway** - YARP reverse proxy
 
-**Veritabanı Notası:**
+**Veritabanlar** (SQL Server container'ında):
+- `KayraAuthDb` - Auth tokens ve user data
+- `KayraProductDb` - Product catalog
+- `KayraLogDb` - Centralized logs
 
-Containerlar SQL Server yerine LocalDB kullanıyor. Veritabanlar host machine'de LocalDB'de yer alıyor.
-
-```bash
-# Container başlamadan ÖNCE veritabanları migrate etmelisin:
-Add-Migration InitialAuthSchema -Project Auth.Infrastructure -StartupProject Auth.API
-Update-Database -Project Auth.Infrastructure -StartupProject Auth.API
-# ... (Product ve Log için de)
-```
-
-Container'lar başladıktan sonra, appsettings.Docker.json aracılığıyla `host.docker.internal` üzerinden LocalDB'ye bağlanırlar.
-
-### Database Setup (LocalDB with Docker Containers)
-
-**ÖNEMLI:** Container'lar başlamadan ÖNCE hassas veritabanı migration'larını çalıştırmalısınız:
-
-```bash
-# Host machine'de (Docker başlamadan):
-
-# Auth DB
-Add-Migration InitialAuthSchema -Project Auth.Infrastructure -StartupProject Auth.API
-Update-Database -Project Auth.Infrastructure -StartupProject Auth.API
-
-# Product DB
-Add-Migration InitialProductSchema -Project Product.Infrastructure -StartupProject Product.API
-Update-Database -Project Product.Infrastructure -StartupProject Product.API
-
-# Log DB
-Add-Migration InitialLogSchema -Project Log.Infrastructure -StartupProject Log.API
-Update-Database -Project Log.Infrastructure -StartupProject Log.API
-```
-
-**Nasıl çalışır:**
-- Veritabanları host machine'de LocalDB'de yaşıyor
-- Container'lar `System.Data.SqlClient` Trusted Connection kullanıyor
-- Docker Desktop'ın `host.docker.internal` special hostname'i üzerinden LocalDB'ye erişim sağlanıyor
-- Windows Authentication (Trusted_Connection=True) kullanılıyor
-
-**Avantajlar:**
-- Hızlı startup (SQL Server container gerekmiyor)
-- Development esnekliği (VS'de dbsını kontrol edebilirsin)
-- Düşük resource kullanım
-
-**Dezavantajlar:**
-- Yalnızca Windows'ta çalışır (Linux/Mac'te docker-compose.override.yml ile SQL Server eklemek gerekli)
-
-### Environment Variables (Docker Compose)
-
-`docker-compose.yml` içinde her servis için environment değişkenleri tanımlanmıştır:
-
-```yaml
-environment:
-  - ASPNETCORE_ENVIRONMENT=Docker
-  - ConnectionStrings__AuthDb=Server=auth-db,1433;...
-  - Redis__Connection=redis:6379
-  - Services__LogServiceBaseUrl=http://log-api
-```
-
-Yerel değişiklikler için `docker-compose.override.yml` oluşturabilirsiniz:
-
-```yaml
-version: '3.8'
-services:
-  product-api:
-    environment:
-      - Services__LogServiceBaseUrl=http://custom-log-service
-```
+**Volume'ler:**
+- `sqlserver_data` - SQL Server verisi persistent storage
+- `redis_data` - Redis cache persistence (opsiyonel)
 
 ### Logs Kontrol
 
@@ -479,6 +524,7 @@ docker-compose logs -f
 # Spesifik servis logları
 docker-compose logs -f api-gateway
 docker-compose logs -f product-api
+docker-compose logs -f sqlserver
 
 # Son 100 satır (without follow)
 docker-compose logs --tail=100 product-api
@@ -487,16 +533,16 @@ docker-compose logs --tail=100 product-api
 ### Performance Notes
 
 - **Build Süresi**: ~2-3 dakika (ilk build, network hızına bağlı)
-- **Startup Süresi**: ~30-60 saniye (SQL Server health checks)
-- **Memory**: ~3-4GB RAM (tüm container'lar)
-- **Disk**: ~5-6GB (image'lar + data volumes)
+- **Startup Süresi**: ~45-90 saniye (SQL Server + migration + health checks)
+- **Memory**: ~4-5GB RAM (tüm containerlar)
+- **Disk**: ~8-10GB (images + SQL Server data volume)
 
 ### Known Limitations
 
-1. **SQL Server Licensing**: Developer edition kullanılıyor (production değil)
-2. **LocalDB ile Dev**: Local development için LocalDB + Redis daha hafif
-3. **Database Migrations**: Container'da manuel migration gerekli
-4. **SSL/HTTPS**: Docker ortamında HTTP kullanılıyor (HTTPS için sertifikat setup gerekli)
+1. **SQL Server Container**: Developer edition kullanılıyor
+2. **Migration Otomasyonu**: Program.cs'de Database.Migrate() otomatik çalışır
+3. **SSL/HTTPS**: Docker ortamında HTTP kullanılıyor (HTTPS için sertifikat setup gerekli)
+4. **Password**: appsettings.Docker.json içinde SA password (production'da environment variable kullan)
 
 ### Troubleshooting
 
@@ -512,14 +558,126 @@ netstat -ano | findstr :5109  # Windows
 # Log detayları gör
 docker-compose logs api-gateway
 
-# Health check başarısız
-docker-compose logs auth-db
+# SQL Server startup kontrol
+docker-compose logs sqlserver
 ```
 
 **Database Connection Error**
 ```bash
 # SQL Server hazır mı kontrol et
-docker exec kayra-auth-db sqlcmd -S localhost -U sa -P KayraPassword123! -Q "SELECT @@VERSION"
+docker exec kayra_sqlserver sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "SELECT @@VERSION"
+
+# Database var mı kontrol et
+docker exec kayra_sqlserver sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "SELECT DB_NAME() FROM sys.databases WHERE name='KayraProductDb'"
+```
+
+**SQL Server SA Password Reset**
+```bash
+# docker-compose.yml SA_PASSWORD environment variable bölümünü kontrol et
+# docker-compose down -v ile baştan başla
+docker-compose down -v
+docker-compose up --build
+```
+
+---
+
+## Continuous Integration (CI/CD)
+
+### GitHub Actions Workflow
+
+Repositoryyde otomatik doğrulama için GitHub Actions CI pipeline'ı kullanılmaktadır.
+
+#### Workflow: `.github/workflows/ci.yml`
+
+**Tetikleme:**
+- ✅ Push events (test/v1.0.0, prod/v1.0.0, main)
+- ✅ Pull Request events (test/v1.0.0, prod/v1.0.0, main)
+
+**Adımlar:**
+1. **Checkout** - Kod indirilir
+2. **.NET 8 SDK Setup** - Runtime ve tools kurulur
+3. **Restore** - NuGet bağımlılıkları yüklenir
+4. **Build** - Release konfigürasyonunda proje build'lenir
+5. **Test** - xUnit unit tests çalıştırılır (Product.Application.Tests)
+6. **Docker Verification** - Tüm Dockerfile'lar build'lenir (registry push YOK)
+
+#### Docker Doğrulaması
+
+```bash
+docker build -t kayra-auth-api:verify Auth.API/
+docker build -t kayra-product-api:verify Product.API/
+docker build -t kayra-log-api:verify Log.API/
+docker build -t kayra-api-gateway:verify ApiGateway/
+```
+
+**Scope:**
+- ✅ Dockerfile syntax doğruluğu
+- ✅ .NET 8 SDK build başarısı
+- ✅ Multi-stage build adımları
+- ✅ Dependency resolution
+
+**Dışında (yapılmayan):**
+- ❌ Deployment yok
+- ❌ Registry push yok (DockerHub vb.)
+- ❌ Cloud environment deploy yok
+- ❌ Kubernetes deploy yok
+- ❌ SQL Server container image pull yok (build-only verification)
+
+#### Workflow Durumunu Kontrol Et
+
+GitHub repository sayfasında **"Actions"** sekmesinden recent workflow runs'ları görebilirsin.
+
+```
+Repo → Actions → ci.yml → Recent runs
+```
+
+Workflow başarılı ise tüm adımlar yeşil checkpoint gösterir:
+- ✅ Checkout code
+- ✅ Setup .NET 8 SDK
+- ✅ Restore dependencies
+- ✅ Build solution
+- ✅ Run unit tests
+- ✅ Verify Docker image builds
+
+#### Local Test (CI Öncesi Doğrulama)
+
+Workflow çalıştırılmadan önce local'inde test edebilirsin:
+
+```bash
+# Solution restore
+dotnet restore KayraExportCase.slnx
+
+# Build (Release)
+dotnet build KayraExportCase.slnx --configuration Release
+
+# Tests çalıştır
+dotnet test KayraExportCase.slnx --configuration Release
+
+# Docker image build'lerini doğrula
+docker build -t kayra-auth-api:verify Auth.API/
+docker build -t kayra-product-api:verify Product.API/
+docker build -t kayra-log-api:verify Log.API/
+docker build -t kayra-api-gateway:verify ApiGateway/
+```
+
+#### Workflow Failure Troubleshooting
+
+**Build hatası**
+```bash
+# Local'de debug et
+dotnet build KayraExportCase.slnx --configuration Release --verbosity diagnostic
+```
+
+**Test hatası**
+```bash
+# Test projesi çalıştır
+dotnet test Product.Application.Tests --configuration Release -v normal
+```
+
+**Docker build hatası**
+```bash
+# Specific dockerfile debug
+docker build --no-cache -t test Auth.API/
 ```
 
 ---
@@ -534,19 +692,26 @@ docker exec kayra-auth-db sqlcmd -S localhost -U sa -P KayraPassword123! -Q "SEL
 - API Gateway Routing
 - Rate Limiting
 - JWT Authentication
+- Role-Based ve Policy-Based Authorization
 - Onion Architecture
 - Entity Framework Core Migrations
-- **Docker Containerization** (LocalDB + Redis + API Services)
+- **Docker Containerization** (SQL Server + Redis + API Services)
+  - Multi-stage builds (SDK 8.0 → aspnet:8.0)
+  - Automatic Database Migration (Program.cs)
+  - SQL Server Container Integration
+  - Container service discovery (sqlserver, redis, service-to-service)
+  - appsettings.Docker.json configuration
 - **Unit Tests** (xUnit + Moq, 13 tests)
 - **Event Publishing** (ProductCreatedEvent)
+- **CI/CD Pipeline** (GitHub Actions)
+  - Automated build, test, Docker verification
+  - Multi-branch trigger (push/PR on test/v1.0.0, prod/v1.0.0, main)
+  - Build & test validation
 
 ⠀ **Ekstra Değerlendirme (Henüz Yapılmamış):**
-- CI/CD Pipeline
+- CI/CD Deployment Pipeline (automated release/deploy)
 - RabbitMQ / Kafka Event Bus
 - SAGA Pattern
-- Role-Based Authorization
-- Advanced Structured Logging (Serilog + ELK)
-- SQL Server Container (Alternative DB setup)
 
 ---
 

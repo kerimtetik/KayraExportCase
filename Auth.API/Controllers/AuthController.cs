@@ -1,6 +1,7 @@
-﻿using Auth.Application.DTOs;
+using Auth.Application.DTOs;
 using Auth.Application.Interfaces;
 using Auth.Domain.Entities;
+using Auth.Infrastructure.Authorization;
 using Auth.Infrastructure.Identity;
 using Auth.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -15,15 +16,18 @@ namespace Auth.API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly RoleManager<IdentityRole> _roleManager;
     private readonly AuthDbContext _authDbContext;
     private readonly ITokenService _tokenService;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
+        RoleManager<IdentityRole> roleManager,
         AuthDbContext authDbContext,
         ITokenService tokenService)
     {
         _userManager = userManager;
+        _roleManager = roleManager;
         _authDbContext = authDbContext;
         _tokenService = tokenService;
     }
@@ -50,10 +54,15 @@ public class AuthController : ControllerBase
         };
 
         var result = await _userManager.CreateAsync(user, request.Password);
-
         if (!result.Succeeded)
         {
             return BadRequest(result.Errors.Select(x => x.Description));
+        }
+
+        var addToRoleResult = await _userManager.AddToRoleAsync(user, AppRoles.User);
+        if (!addToRoleResult.Succeeded)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, addToRoleResult.Errors.Select(x => x.Description));
         }
 
         return Ok("Kullanıcı oluşturuldu.");
@@ -158,5 +167,35 @@ public class AuthController : ControllerBase
     public IActionResult SecurePing()
     {
         return Ok("Token geçerli.");
+    }
+
+    [Authorize(Policy = AppPolicies.AdminOnlyPolicy)]
+    [HttpPost("assign-role")]
+    public async Task<IActionResult> AssignRole(AssignRoleRequestDto request)
+    {
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is null)
+        {
+            return NotFound("Kullanıcı bulunamadı.");
+        }
+
+        var roleExists = await _roleManager.RoleExistsAsync(request.RoleName);
+        if (!roleExists)
+        {
+            return BadRequest("Geçersiz rol.");
+        }
+
+        if (await _userManager.IsInRoleAsync(user, request.RoleName))
+        {
+            return Ok("Kullanıcı bu role zaten sahip.");
+        }
+
+        var result = await _userManager.AddToRoleAsync(user, request.RoleName);
+        if (!result.Succeeded)
+        {
+            return BadRequest(result.Errors.Select(x => x.Description));
+        }
+
+        return Ok("Rol ataması başarılı.");
     }
 }
